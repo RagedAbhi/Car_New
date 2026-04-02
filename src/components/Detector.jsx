@@ -1,40 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { Camera, AlertCircle } from 'lucide-react';
+import { Camera, Monitor, AlertCircle } from 'lucide-react';
 import { getDominantColor, getColorName } from '../utils/colorUtils';
 
 export default function Detector({ onDetection }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [model, setModel] = useState(null);
-  const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState(null);
   const lastCaptureTimeRef = useRef(0);
+  const frameCountRef = useRef(0);
+  const colorCacheRef = useRef({}); // Cache colors to prevent flickering
+  const [isMonitoring, setIsMonitoring] = useState(false);
   const requestRef = useRef(null);
 
-  // Initialize webcam and model
+  // Initialize model
   useEffect(() => {
     let isMounted = true;
-
-    async function setupCamera() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Browser API navigator.mediaDevices.getUserMedia not available');
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'environment' }
-      });
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        return new Promise((resolve) => {
-          videoRef.current.onloadedmetadata = () => {
-            resolve(videoRef.current);
-          };
-        });
-      }
-    }
 
     async function loadModel() {
       try {
@@ -46,29 +29,61 @@ export default function Detector({ onDetection }) {
       }
     }
 
-    Promise.all([setupCamera(), loadModel()])
-      .then(() => {
-        if (isMounted) setIsReady(true);
-      })
-      .catch((err) => {
-        if (isMounted) setError(err.message || 'Error accessing camera');
-      });
+    loadModel();
 
     return () => {
       isMounted = false;
-      if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach(t => t.stop());
-      }
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
       }
     };
   }, []);
 
+  async function startMonitoring() {
+    setError(null);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      setError('Browser API navigator.mediaDevices.getDisplayMedia not available');
+      return;
+    }
+    
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' },
+        audio: false
+      });
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          setIsMonitoring(true);
+        };
+        
+        // Listen for user clicking "Stop Sharing" in browser
+        stream.getVideoTracks()[0].onended = () => {
+          stopMonitoring();
+        };
+      }
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        setError('Screen capture permission was denied.');
+      } else {
+        setError(err.message || 'Error accessing screen');
+      }
+    }
+  }
+
+  function stopMonitoring() {
+    setIsMonitoring(false);
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach(t => t.stop());
+      videoRef.current.srcObject = null;
+    }
+  }
+
   // Detection Loop
   useEffect(() => {
-    if (!isReady || !model) return;
+    if (!isMonitoring || !model) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -101,14 +116,26 @@ export default function Detector({ onDetection }) {
               ctx.lineWidth = 3;
               ctx.strokeRect(x, y, width, height);
 
-              // Draw label
-              ctx.fillStyle = '#58a6ff';
-              ctx.font = '16px -apple-system, sans-serif';
-              ctx.fillText(
-                `${prediction.class} (${Math.round(prediction.score * 100)}%)`, 
-                x, 
-                y > 20 ? y - 5 : y + 20
-              );
+              // --- Live Color Labeling (Every 5 frames) ---
+              let label = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
+              const predId = `${prediction.class}-${Math.round(x)}-${Math.round(y)}`;
+              
+              if (frameCountRef.current % 5 === 0) {
+                // Perform quick color scan on tiny crop
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = 30; tempCanvas.height = 30;
+                const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+                tCtx.drawImage(video, x + width*0.2, y + height*0.2, width*0.6, height*0.4, 0, 0, 30, 30);
+                const iData = tCtx.getImageData(0, 0, 30, 30);
+                const rgb = getDominantColor(iData, 3);
+                const name = getColorName(rgb[0], rgb[1], rgb[2]);
+                colorCacheRef.current[predId] = name;
+              }
+
+              const liveColor = colorCacheRef.current[predId] || "Scanning...";
+              label = `${liveColor} ${prediction.class} (${Math.round(prediction.score * 100)}%)`;
+
+              ctx.fillText(label, x, y > 20 ? y - 5 : y + 20);
 
               // Capture snapshot if score > 60%
               if (prediction.score > 0.6) {
@@ -130,6 +157,8 @@ export default function Detector({ onDetection }) {
           console.error("Detection error:", e);
         }
         
+        
+        frameCountRef.current++;
         isDetecting = false;
       }
       
@@ -141,7 +170,7 @@ export default function Detector({ onDetection }) {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isReady, model, onDetection]);
+  }, [isMonitoring, model, onDetection]);
 
   const captureSnapshot = (bestCar) => {
     if (!videoRef.current || !bestCar) return;
@@ -226,8 +255,8 @@ export default function Detector({ onDetection }) {
     <div className="detector-section panel">
       <div className="camera-controls">
         <h2 className="flex items-center gap-2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Camera size={20} />
-          <span>Live Feed</span>
+          <Monitor size={20} />
+          <span>Screen Analysis</span>
         </h2>
         {error ? (
           <div className="status-badge" style={{ color: 'var(--danger-color)', backgroundImage: 'none', borderColor: 'var(--danger-color)' }}>
@@ -235,20 +264,42 @@ export default function Detector({ onDetection }) {
             {error}
           </div>
         ) : (
-          <div className={`status-badge ${isReady ? 'detecting' : ''}`}>
-            {isReady && <div className="pulse"></div>}
-            {isReady ? 'Active Analysis' : 'Loading Model...'}
+          <div className={`status-badge ${isMonitoring ? 'detecting' : ''}`}>
+            {isMonitoring && <div className="pulse"></div>}
+            {isMonitoring ? 'Active Analysis' : (model ? 'Ready to Monitor' : 'Loading Model...')}
           </div>
         )}
       </div>
       <div className="video-container">
+        {!isMonitoring && (
+          <div className="monitoring-overlay">
+            <div className="monitoring-content">
+              <Monitor size={48} className="monitoring-icon" />
+              <h3>Ready to Monitor</h3>
+              <p>Click the button below to select a screen, window, or tab for car analysis.</p>
+              
+              <div className="hall-mirrors-tip" style={{ marginTop: '20px', padding: '12px', background: 'rgba(255,165,0,0.1)', borderLeft: '3px solid orange', borderRadius: '4px', fontSize: '0.85rem', color: '#ffcc00' }}>
+                <strong>Tip for Better Accuracy:</strong> To avoid the "Hall of Mirrors" effect, select a <strong>Window</strong> or <strong>Chrome Tab</strong> specifically (e.g. YouTube traffic cam) instead of your Entire Screen.
+              </div>
+
+              <button 
+                onClick={startMonitoring}
+                className="start-btn"
+                style={{ marginTop: '24px', padding: '12px 32px', background: 'var(--accent-color)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', fontWeight: '600' }}
+              >
+                {model ? "Start Analyzing Screen" : "Loading Model..."}
+              </button>
+            </div>
+          </div>
+        )}
         <video 
           ref={videoRef} 
           autoPlay 
           playsInline 
           muted 
+          style={{ display: isMonitoring ? 'block' : 'none' }}
         />
-        <canvas ref={canvasRef} className="overlay" />
+        <canvas ref={canvasRef} className="overlay" style={{ display: isMonitoring ? 'block' : 'none' }} />
       </div>
     </div>
   );

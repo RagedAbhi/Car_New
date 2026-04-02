@@ -314,3 +314,68 @@ canvas.overlay {
   font-weight: 500;
   color: #fff;
 }
+
+/* Monitoring Overlay */
+.monitoring-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(13, 17, 23, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  text-align: center;
+}
+
+.monitoring-content {
+  max-width: 400px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.monitoring-icon {
+  color: var(--accent-color);
+  margin-bottom: 20px;
+  filter: drop-shadow(0 0 10px rgba(88, 166, 255, 0.3));
+}
+
+.monitoring-content h3 {
+  font-size: 1.5rem;
+  margin-bottom: 12px;
+  color: #fff;
+}
+
+.monitoring-content p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.start-btn {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.start-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+  box-shadow: 0 4px 15px rgba(88, 166, 255, 0.4);
+}
+
+.start-btn:active {
+  transform: translateY(0);
+}
+
+.hall-mirrors-tip {
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
