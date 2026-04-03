@@ -23,12 +23,6 @@ export default function DetectionGallery({ detections }) {
           {detections.map(det => (
             <div key={det.id} className="image-card">
               <img src={det.imageUrl} alt="Detected car" />
-              {det.plate && (
-                <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, background: 'rgba(0,0,0,0.6)', padding: '4px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                  <img src={det.plate.image_b64} alt="License Plate" style={{ height: '30px', width: 'auto', borderRadius: '2px', display: 'block' }} />
-                  <div style={{ fontSize: '0.6rem', color: '#fff', textAlign: 'center', marginTop: '2px' }}>Plate ({Math.round(det.plate.confidence * 100)}%)</div>
-                </div>
-              )}
               <div className="image-info">
                 <span className="time">{formatTime(det.timestamp)}</span>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
